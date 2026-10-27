@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 import { entities } from './entities.js';
 import { Initial1791900000000 } from './migrations/1791900000000-Initial.js';
+import { Calibration1793059200000 } from './migrations/1793059200000-Calibration.js';
 
-const migrations = [Initial1791900000000];
+const migrations = [Initial1791900000000, Calibration1793059200000];
 
 /**
  * Single source of truth for Postgres connection options.
@@ -38,7 +39,7 @@ export function resolveDatabaseUrl(
   if (!host || !name || !username || !password) {
     throw new Error(
       'Missing required environment variable: DATABASE_URL ' +
-      '(or DATABASE_HOST, DATABASE_NAME, DATABASE_USERNAME and DATABASE_PASSWORD)',
+        '(or DATABASE_HOST, DATABASE_NAME, DATABASE_USERNAME and DATABASE_PASSWORD)',
     );
   }
   const sslRequested =
@@ -86,7 +87,7 @@ export function buildDataSourceOptions(
     } catch {
       throw new Error(
         `Could not read TLS CA cert at ${certPath} (set by DATABASE_CERT). ` +
-        'Check the path relative to the backend working directory.',
+          'Check the path relative to the backend working directory.',
       );
     }
   }
@@ -103,11 +104,11 @@ export function buildDataSourceOptions(
     logging: env.DB_LOGGING === 'true',
     ...(sslRequested || sslCa
       ? {
-        ssl: {
-          ...(sslCa ? { ca: sslCa } : {}),
-          rejectUnauthorized: env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
-        },
-      }
+          ssl: {
+            ...(sslCa ? { ca: sslCa } : {}),
+            rejectUnauthorized: env.DB_SSL_REJECT_UNAUTHORIZED !== 'false',
+          },
+        }
       : {}),
     extra: {
       max: Number.isInteger(poolMax) && poolMax > 0 ? poolMax : 10,

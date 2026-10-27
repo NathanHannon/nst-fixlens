@@ -5,15 +5,28 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 @Controller('health')
 export class HealthController {
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    private readonly config: ConfigService,
+  ) {}
   @Get() async check() {
     try {
-      await this.db.query('SELECT 1');
-      return { status: 'ok' };
+      await this.db.query(
+        'SELECT calibration, calibrated_area_mm2 FROM measurements LIMIT 0',
+      );
+      return {
+        status: 'ok',
+        capture_flow: 'editable-outlines-v3',
+        diagnosis_provider:
+          this.config.get<string>('DIAGNOSIS_PROVIDER') ?? 'mock',
+      };
     } catch {
-      throw new ServiceUnavailableException('Database unavailable');
+      throw new ServiceUnavailableException(
+        'Database unavailable or calibration migration missing',
+      );
     }
   }
 }

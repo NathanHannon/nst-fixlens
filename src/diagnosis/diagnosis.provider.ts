@@ -1,9 +1,34 @@
 import { Injectable } from '@nestjs/common';
 import { ProblemCategory, Urgency } from '../database/entities.js';
 import type { Capture, Problem, Diy, Pro } from '../database/entities.js';
-import type { Hazard } from './diagnosis.dto.js';
+import type { Hazard, SelectionDto } from './diagnosis.dto.js';
+import type { Calibration } from '../measurements/calibration.js';
+import type { PixelBox } from '../models/segmentation.schema.js';
+import type { MaskQuality } from '../models/segmentation-quality.js';
+export interface SegmentationResult {
+  outline_source?: 'sam' | 'user_corrected' | 'user_drawn';
+  status?: 'candidate' | 'unavailable';
+  reason?: string;
+  hazards?: Hazard[];
+  target?: {
+    description: string | null;
+    box: PixelBox | null;
+    muse_version: string;
+  };
+  quality?: MaskQuality | { passed: true; reasons: []; method: 'user_outline' };
+  attempts?: number;
+  calibration?: Calibration;
+  calibrated_area_mm2?: number;
+  selection: SelectionDto;
+  mask_key: string | null;
+  area_px: number | null;
+  perimeter_px: number | null;
+  sam_version: string;
+}
 export interface DiagnosisResult {
-  measurement: {
+  measurement: null | {
+    calibration?: Calibration | null;
+    calibrated_area_mm2?: number | null;
     mask_key: string | null;
     area_px: number;
     perimeter_px: number | null;
@@ -30,7 +55,19 @@ export interface DiagnosisResult {
   hazards: Hazard[];
 }
 export interface DiagnosisProvider {
-  diagnose(problem: Problem, capture: Capture): Promise<DiagnosisResult>;
+  segment(
+    problem: Problem,
+    capture: Capture,
+    selection: SelectionDto,
+    calibration?: Calibration,
+    context?: { text?: string; hazards?: Hazard[] },
+  ): Promise<SegmentationResult>;
+  diagnose(
+    problem: Problem,
+    capture: Capture,
+    segmentation: SegmentationResult,
+    context?: { text?: string; hazards?: Hazard[] },
+  ): Promise<DiagnosisResult>;
 }
 export const DIAGNOSIS_PROVIDER = Symbol('DIAGNOSIS_PROVIDER');
 const findings: Record<
@@ -70,6 +107,19 @@ const findings: Record<
 };
 @Injectable()
 export class MockDiagnosisProvider implements DiagnosisProvider {
+  segment(
+    _problem: Problem,
+    _capture: Capture,
+    selection: SelectionDto,
+  ): Promise<SegmentationResult> {
+    return Promise.resolve({
+      selection,
+      mask_key: null,
+      area_px: 1200,
+      perimeter_px: 180,
+      sam_version: 'mock-sam-3.1',
+    });
+  }
   diagnose(problem: Problem, _capture: Capture): Promise<DiagnosisResult> {
     const finding = findings[problem.category];
     return Promise.resolve({

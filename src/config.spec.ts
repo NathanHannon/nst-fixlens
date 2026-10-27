@@ -6,6 +6,7 @@ const valid = {
   SPACES_KEY: 'key',
   SPACES_SECRET: 'secret',
   SPACES_BUCKET: 'bucket',
+  SEGMENTATION_SECRET: 'test-segmentation-secret-at-least-32-characters',
 };
 describe('environment', () => {
   it('lists missing variables clearly', () => {
@@ -45,6 +46,30 @@ describe('environment', () => {
   });
   it('defaults the port', () => {
     expect(validateEnv(valid).PORT).toBe(3000);
+  });
+  it('requires a sufficiently long preview signing secret', () => {
+    expect(() =>
+      validateEnv({ ...valid, SEGMENTATION_SECRET: 'short' }),
+    ).toThrow('SEGMENTATION_SECRET');
+  });
+  it('keeps mock explicit and requires credentials for Meta mode', () => {
+    expect(validateEnv(valid).DIAGNOSIS_PROVIDER).toBe('mock');
+    expect(() => validateEnv({ ...valid, DIAGNOSIS_PROVIDER: 'meta' })).toThrow(
+      'META_AI_API_KEY',
+    );
+    expect(
+      validateEnv({
+        ...valid,
+        DIAGNOSIS_PROVIDER: 'meta',
+        MODEL_API_KEY: 'test',
+      }).META_VISION_MODEL,
+    ).toBe('muse-spark-1.3');
+    expect(() =>
+      validateEnv({ ...valid, DIAGNOSIS_PROVIDER: 'wrong' }),
+    ).toThrow('mock or meta');
+    expect(() => validateEnv({ ...valid, META_TIMEOUT_MS: 0 })).toThrow(
+      'META_TIMEOUT_MS',
+    );
   });
   it.each(['0', '65536', 'abc', '3.5'])('rejects invalid port %s', (PORT) => {
     expect(() => validateEnv({ ...valid, PORT })).toThrow('PORT');

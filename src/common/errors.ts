@@ -21,6 +21,13 @@ export class JsonErrorFilter implements ExceptionFilter {
         typeof payload === 'string'
           ? payload
           : (payload as { message: string | string[] }).message;
+    } else if ((error as { type?: string })?.type === 'entity.too.large') {
+      status = 413;
+      message =
+        'The outline request is too large. Save fewer strokes at a time.';
+    } else if ((error as { type?: string })?.type === 'entity.parse.failed') {
+      status = 400;
+      message = 'Request body must be valid JSON';
     } else if (
       error instanceof QueryFailedError &&
       (error.driverError as { code?: string }).code === '23505'

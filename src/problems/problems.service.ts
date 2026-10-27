@@ -1,7 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Problem, CaptureDelta, Report } from '../database/entities.js';
+import {
+  Problem,
+  CaptureDelta,
+  Report,
+  Measurement,
+} from '../database/entities.js';
 import { CreateProblemDto } from './problem.dto.js';
 @Injectable()
 export class ProblemsService {
@@ -46,6 +51,18 @@ export class ProblemsService {
       }),
       this.deltas(id, userId),
     ]);
-    return { ...problem, latest_report, delta_summary: deltas[0] ?? null };
+    const latest_measurement = latest_report
+      ? await this.reports.manager.findOneBy(Measurement, {
+          capture_id: latest_report.capture_id,
+        })
+      : null;
+    return {
+      ...problem,
+      latest_report,
+      latest_measurement,
+      delta_summary:
+        deltas.find((d) => d.to_capture_id === latest_report?.capture_id) ??
+        null,
+    };
   }
 }

@@ -11,6 +11,7 @@ import {
   ViewColumn,
 } from 'typeorm';
 import { deltaExpression } from './delta-expression.js';
+import type { Calibration } from '../measurements/calibration.js';
 export enum ProblemCategory {
   WaterStain = 'water_stain',
   Crack = 'crack',
@@ -147,6 +148,10 @@ export class Capture {
   'scale_mm_per_px IS NULL OR scale_mm_per_px > 0',
 )
 export class Measurement {
+  @Column({ type: 'jsonb', nullable: true })
+  calibration!: Calibration | null;
+  @Column({ type: 'double precision', nullable: true })
+  calibrated_area_mm2!: number | null;
   @PrimaryGeneratedColumn('uuid', {
     primaryKeyConstraintName: 'measurements_pkey',
   })
