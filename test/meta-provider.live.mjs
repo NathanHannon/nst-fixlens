@@ -44,6 +44,7 @@ const jpeg = await sharp(png).jpeg({ quality: 95 }).toBuffer();
 const image = `data:image/jpeg;base64,${jpeg.toString('base64')}`;
 const objects = new Map();
 const storage = {
+  readMask: async (key) => objects.get(key).bytes,
   readPhoto: async () => jpeg,
   putAnalysisPhoto: async (key, bytes) =>
     objects.set(key, { bytes, type: 'image/jpeg' }),

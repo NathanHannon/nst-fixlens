@@ -20,6 +20,37 @@ const plan = {
   hazards: [],
 };
 describe('segmentation constraints', () => {
+  it('requires a text mask to intersect intent guides and pass spill/exclusion checks without treating a rough brush as truth', () => {
+    const target = constrainTarget(plan, selection, 100, 100)!;
+    target.foreground = [
+      { x: 15, y: 15 },
+      { x: 20, y: 20 },
+      { x: 24, y: 24 },
+    ];
+    const mask = new Uint8Array(10000);
+    mask[15 * 100 + 15] = 1;
+    expect(inspectMask(mask, 100, 100, selection, target).passed).toBe(false);
+    expect(
+      inspectMask(mask, 100, 100, selection, target, 'text'),
+    ).toMatchObject({
+      passed: true,
+      method: 'text',
+      foreground_coverage: 1 / 3,
+    });
+    mask[8 * 100 + 8] = 1;
+    expect(inspectMask(mask, 100, 100, selection, target, 'text').passed).toBe(
+      false,
+    );
+    expect(
+      inspectMask(new Uint8Array(10000), 100, 100, selection, target, 'text')
+        .passed,
+    ).toBe(false);
+    const offTarget = new Uint8Array(10000);
+    offTarget[18 * 100 + 18] = 1;
+    expect(
+      inspectMask(offTarget, 100, 100, selection, target, 'text').passed,
+    ).toBe(false);
+  });
   it('keeps a padded crop and exclusion points in source coordinates', () => {
     const target = constrainTarget(plan, selection, 100, 100)!;
     expect(target.crop).toEqual({ left: 6, top: 6, width: 28, height: 28 });
@@ -97,8 +128,23 @@ describe('segmentation constraints', () => {
     expect(measured.png.readUInt32BE(16)).toBe(20);
   });
   it('requires an explicit structured final mask decision and a bounded targeting schema', () => {
-    const normalized = { ...plan, coordinate_system: 'normalized_1000' };
+    const normalized = {
+      ...plan,
+      coordinate_system: 'normalized_1000',
+      concept: 'gray scuff',
+      preferred_method: 'spatial',
+      routing_reason: 'Faint mark benefits from guides',
+    };
     expect(parseTarget(JSON.stringify(normalized))).toEqual(normalized);
+    for (const route of [
+      { concept: null, preferred_method: 'text' },
+      { concept: 'crack and stain' },
+      { preferred_method: 'invented' },
+      { routing_reason: '' },
+    ])
+      expect(() =>
+        parseTarget(JSON.stringify({ ...normalized, ...route })),
+      ).toThrow();
     expect(() =>
       parseTarget(
         JSON.stringify({ ...normalized, background: [{ x: NaN, y: 0 }] }),

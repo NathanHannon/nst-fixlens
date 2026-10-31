@@ -18,6 +18,9 @@ export function targetToPixels(
     y: Math.min(height - 1, Math.max(0, Math.round((p.y * height) / 1000))),
   });
   return {
+    concept: plan.concept,
+    preferred_method: plan.preferred_method,
+    routing_reason: plan.routing_reason,
     status: plan.status,
     description: plan.description,
     reason: plan.reason,

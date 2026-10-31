@@ -17,6 +17,24 @@ const reference: CalibrationInput = {
   height_mm: 50,
 };
 describe('planar calibration', () => {
+  it('calibrates a measured rectangle without assuming standard card dimensions', () => {
+    const c = calibrate(
+      {
+        ...reference,
+        method: 'known_rectangle',
+        width_mm: 300,
+        height_mm: 150,
+      },
+      200,
+      100,
+    );
+    const mask = new Uint8Array(20000);
+    for (let y = 20; y < 70; y++)
+      for (let x = 20; x < 120; x++) mask[y * 200 + x] = 1;
+    expect(c.method).toBe('known_rectangle');
+    expect(calibratedArea(mask, 200, 100, c)).toBeCloseTo(45000);
+    expect(project(c.image_to_plane, 120, 70)).toEqual({ x: 300, y: 150 });
+  });
   it('maps reference corners to millimeters and integrates a known area', () => {
     const c = calibrate(reference, 200, 100);
     expect(project(c.image_to_plane, 20, 20).x).toBeCloseTo(0);

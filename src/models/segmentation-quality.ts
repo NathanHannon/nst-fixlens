@@ -11,6 +11,7 @@ export interface AnalysisTarget {
   background: PixelPoint[];
 }
 export interface MaskQuality {
+  method?: 'spatial' | 'text';
   passed: boolean;
   reasons: string[];
   outside_selection_fraction: number;
@@ -102,6 +103,7 @@ export function inspectMask(
   height: number,
   selection: SelectionDto,
   target: AnalysisTarget,
+  method: 'spatial' | 'text' = 'spatial',
 ): MaskQuality {
   let area = 0,
     outside = 0;
@@ -125,13 +127,19 @@ export function inspectMask(
     reasons.push('The highlight expanded too far beyond your selected region.');
   if (crop_coverage > 0.85)
     reasons.push('The highlight covers almost the entire analysis crop.');
-  if (foreground_coverage < 0.6)
+  // Text does not consume the spatial points. Require an intent anchor, not
+  // coverage of a rough brush as though it were a verified damage boundary.
+  // Every surviving text mask still requires explicit visual selection review.
+  if (
+    method === 'spatial' ? foreground_coverage < 0.6 : foreground_coverage === 0
+  )
     reasons.push('The highlight misses too many foreground guide points.');
   if (background_coverage > 0)
     reasons.push(
       'The highlight includes a point identified as unaffected background.',
     );
   return {
+    ...(method === 'text' ? { method } : {}),
     passed: reasons.length === 0,
     reasons,
     outside_selection_fraction,

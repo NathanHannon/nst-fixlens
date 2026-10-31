@@ -15,7 +15,7 @@ class PointDto {
   @IsNumber({ allowInfinity: false, allowNaN: false }) @Min(0) y!: number;
 }
 export class CalibrationDto implements CalibrationInput {
-  @IsIn(['reference_card', 'arkit_plane', 'arcore_plane'])
+  @IsIn(['reference_card', 'known_rectangle', 'arkit_plane', 'arcore_plane'])
   method!: CalibrationInput['method'];
   @IsArray()
   @ArrayMinSize(4)

@@ -20,6 +20,13 @@ export class HealthController {
       return {
         status: 'ok',
         capture_flow: 'editable-outlines-v3',
+        mask_review: 'pixel-shape-v4',
+        calibration: 'known-rectangle-v1',
+        job_deletion: 'scoped-cleanup-v1',
+        segmentation_strategy:
+          this.config.get<string>('DIAGNOSIS_PROVIDER') === 'meta'
+            ? 'routed-single-candidate-v1'
+            : 'mock',
         diagnosis_provider:
           this.config.get<string>('DIAGNOSIS_PROVIDER') ?? 'mock',
       };

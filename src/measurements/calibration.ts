@@ -5,7 +5,7 @@ export interface Point {
   y: number;
 }
 export interface CalibrationInput {
-  method: 'reference_card' | 'arkit_plane' | 'arcore_plane';
+  method: 'reference_card' | 'known_rectangle' | 'arkit_plane' | 'arcore_plane';
   points: Point[];
   width_mm: number;
   height_mm: number;

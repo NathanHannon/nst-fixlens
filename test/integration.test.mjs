@@ -12,6 +12,8 @@ import {
   Measurement,
   Report,
   Capture,
+  Problem,
+  User,
 } from '../dist/database/entities.js';
 import { Initial1791900000000 } from '../dist/database/migrations/1791900000000-Initial.js';
 import { Calibration1793059200000 } from '../dist/database/migrations/1793059200000-Calibration.js';
@@ -24,6 +26,7 @@ import { JsonErrorFilter } from '../dist/common/errors.js';
 import { ConfigService } from '@nestjs/config';
 import { SegmentationReceipt } from '../dist/diagnosis/segmentation-receipt.js';
 import { MetaModelsService } from '../dist/models/meta-models.service.js';
+import { ProblemDeletionService } from '../dist/problems/problem-deletion.service.js';
 
 if (!process.env.TEST_DATABASE_URL)
   throw new Error(
@@ -53,6 +56,9 @@ const db = new DataSource({
 let app;
 const uploads = new Set();
 const signedMediaReads = [];
+const deletionIntents = new Map();
+const cleanupScopes = [];
+let failCleanup = false;
 let failProvider = false;
 let invalidReport = false;
 const provider = new MockDiagnosisProvider();
@@ -78,6 +84,25 @@ before(async () => {
         expires_in: 300,
       }),
       exists: async (key) => uploads.has(key),
+      deletion: async (id) => deletionIntents.get(id) ?? null,
+      beginDeletion: async (intent) =>
+        deletionIntents.set(intent.problem_id, { ...intent }),
+      pendingDeletions: async () => [...deletionIntents.values()],
+      finishDeletion: async (id) => deletionIntents.delete(id),
+      problemFiles: async () => ({
+        photos: 1,
+        outlines: 0,
+        previews: 2,
+        bytes: 100,
+      }),
+      clearProblemFiles: async (id, previewsOnly = false) => {
+        cleanupScopes.push({ id, previewsOnly });
+        if (failCleanup) throw new Error('Synthetic bucket failure');
+        if (!previewsOnly)
+          for (const key of uploads)
+            if (key.startsWith('captures/' + id + '/')) uploads.delete(key);
+        return 2;
+      },
       presignRead: async (key) => {
         signedMediaReads.push(key);
         return `https://test.invalid/${key}`;
@@ -450,6 +475,21 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
     .overrideProvider(MetaModelsService)
     .useValue({
       samModel: 'sam-3.1',
+      suggestConcept: async () => ({
+        concept: null,
+        reason: 'No text concept in this fixture',
+        model: 'muse-concept',
+      }),
+      chooseMask: async () => ({
+        winner: 'a',
+        reason: 'Follows visible damage',
+        reviews: {
+          a: { status: 'matches', reason: 'Follows mark' },
+          b: { status: 'unavailable', reason: 'No text candidate' },
+        },
+        hazards: [],
+        model: 'muse-selector',
+      }),
       target: async () => ({
         model: 'muse-target',
         plan: unclearTarget
@@ -465,6 +505,9 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
           : {
               status: 'clear',
               description: 'Small crack',
+              concept: null,
+              preferred_method: 'spatial',
+              routing_reason: 'Visible localized crack',
               box: { x1: 0, y1: 0, x2: 4, y2: 4 },
               foreground: [{ x: 0, y: 0 }],
               background: [{ x: 2, y: 0 }],
@@ -569,6 +612,9 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
     ).body;
     assert.ok(preview.mask_url.includes('/previews/'));
     assert.equal(preview.area_px, 10);
+    assert.equal(preview.segmentation_method, 'spatial');
+    assert.equal(preview.method_selection.model, 'muse-target');
+    assert.equal(preview.method_selection.fallback, false);
     assert.equal(
       await db.getRepository(Measurement).countBy({ capture_id: capture.id }),
       0,
@@ -672,6 +718,16 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
       await client.post(`/problems/${id}/diagnose`).send(secondBody).expect(201)
     ).body;
     assert.equal(photoOnly.measurement, null);
+    assert.ok(
+      masks.has(
+        receipts.verify(secondPreview.token, {
+          user_id: '00000000-0000-0000-0000-000000000001',
+          problem_id: id,
+          capture_id: second.id,
+        }).mask_key,
+      ),
+      'Retain a rejected outline under the temporary-preview lifecycle for inspection',
+    );
     assert.match(
       photoOnly.report.confidence_note,
       /Photo-based assessment; measurements unavailable/,
@@ -720,14 +776,12 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
     assert.equal(noMaskReport.report.safety_override, true);
     // Manual tracing does not need a successful Muse target or any SAM call.
     rejectMask = false;
-    const manual = await db
-      .getRepository(Capture)
-      .save({
-        problem_id: id,
-        photo_key: 'manual.jpg',
-        photo_width_px: 5,
-        photo_height_px: 5,
-      });
+    const manual = await db.getRepository(Capture).save({
+      problem_id: id,
+      photo_key: 'manual.jpg',
+      photo_width_px: 5,
+      photo_height_px: 5,
+    });
     const editBody = {
       capture_id: manual.id,
       base: 'blank',
@@ -792,14 +846,12 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
     );
     await client.post(`/problems/${id}/mask-edits`).send(editBody).expect(409);
     unclearTarget = false;
-    const corrected = await db
-      .getRepository(Capture)
-      .save({
-        problem_id: id,
-        photo_key: 'corrected.jpg',
-        photo_width_px: 5,
-        photo_height_px: 5,
-      });
+    const corrected = await db.getRepository(Capture).save({
+      problem_id: id,
+      photo_key: 'corrected.jpg',
+      photo_width_px: 5,
+      photo_height_px: 5,
+    });
     const automatic = (
       await client
         .post(`/problems/${id}/segment`)
@@ -819,6 +871,8 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
         .expect(201)
     ).body;
     assert.equal(correctedPreview.outline_source, 'user_corrected');
+    assert.equal(correctedPreview.segmentation_method, null);
+    assert.equal(correctedPreview.method_selection, null);
     assert.ok(correctedPreview.area_px < automatic.area_px);
     const callsAfterPreview = calls;
     const correctedResult = (
@@ -861,17 +915,36 @@ test('reference calibration is validated before inference, signed, saved atomica
       putAnalysisPhoto: async (key, bytes) => masks.set(key, bytes),
       presignRead: async (key) => `https://private.invalid/${key}`,
       putMask: async (key, bytes) => masks.set(key, bytes),
+      readMask: async (key) => masks.get(key),
       confirmMask: async (from, to) => masks.set(to, masks.get(from)),
       removeMask: async (key) => masks.delete(key),
     })
     .overrideProvider(MetaModelsService)
     .useValue({
       samModel: 'sam-3.1',
+      suggestConcept: async () => ({
+        concept: null,
+        reason: 'No text concept in this fixture',
+        model: 'muse-concept',
+      }),
+      chooseMask: async () => ({
+        winner: 'a',
+        reason: 'Follows visible damage',
+        reviews: {
+          a: { status: 'matches', reason: 'Follows mark' },
+          b: { status: 'unavailable', reason: 'No text candidate' },
+        },
+        hazards: [],
+        model: 'muse-selector',
+      }),
       target: async () => ({
         model: 'muse-target',
         plan: {
           status: 'clear',
           description: 'Surface stain',
+          concept: null,
+          preferred_method: 'spatial',
+          routing_reason: 'Visible localized stain',
           box: { x1: 0, y1: 0, x2: 99, y2: 99 },
           foreground: [{ x: 10, y: 10 }],
           background: [{ x: 25, y: 10 }],
@@ -926,7 +999,7 @@ test('reference calibration is validated before inference, signed, saved atomica
       .expect(201)
   ).body.id;
   const calibration = {
-    method: 'reference_card',
+    method: 'known_rectangle',
     points: [
       { x: 0, y: 0 },
       { x: 100, y: 0 },
@@ -1007,6 +1080,7 @@ test('reference calibration is validated before inference, signed, saved atomica
       assert.equal(saved.measurement.scale_mm_per_px, null);
       assert.equal(saved.measurement.area_mm2, null);
       assert.equal(saved.measurement.calibration.quality, 'approximate');
+      assert.equal(saved.measurement.calibration.method, 'known_rectangle');
       assert.equal(saved.measurement.calibration.image_width, 100);
       assert.ok(
         Math.abs(saved.measurement.calibrated_area_mm2 - (4000 + i * 800)) <
@@ -1035,4 +1109,120 @@ test('reference calibration is validated before inference, signed, saved atomica
   } finally {
     await calibrationApp.close();
   }
+});
+
+test('job deletion is owner-scoped, cascades records, and recovers failed bucket cleanup', async () => {
+  const owned = (
+    await api().post('/problems').send({ title: 'Delete fixture' }).expect(201)
+  ).body;
+  const keep = (
+    await api().post('/problems').send({ title: 'Keep fixture' }).expect(201)
+  ).body;
+  const owner = await db
+    .getRepository(User)
+    .save({ clerk_id: 'delete-other-' + randomUUID() });
+  const foreign = await db
+    .getRepository(Problem)
+    .save({ user_id: owner.id, title: 'Foreign fixture' });
+  const before = cleanupScopes.length;
+  await api()
+    .delete('/problems/' + foreign.id)
+    .expect(404);
+  await api().delete('/problems/not-a-uuid').expect(400);
+  await api()
+    .get('/problems/' + foreign.id + '/storage')
+    .expect(404);
+  await api()
+    .delete('/problems/' + foreign.id + '/previews')
+    .expect(404);
+  assert.equal(cleanupScopes.length, before);
+  const upload = (
+    await api()
+      .post('/problems/' + owned.id + '/captures/upload-url')
+      .send({})
+      .expect(201)
+  ).body;
+  uploads.add(upload.photo_key);
+  const capture = (
+    await api()
+      .post('/problems/' + owned.id + '/captures')
+      .send({
+        photo_key: upload.photo_key,
+        photo_width_px: 100,
+        photo_height_px: 100,
+        is_baseline: true,
+      })
+      .expect(201)
+  ).body;
+  const preview = (
+    await api()
+      .post('/problems/' + owned.id + '/segment')
+      .send({
+        capture_id: capture.id,
+        selection: { x1: 0, y1: 0, x2: 99, y2: 99 },
+      })
+      .expect(201)
+  ).body;
+  await api()
+    .post('/problems/' + owned.id + '/diagnose')
+    .send({ capture_id: capture.id, segmentation_token: preview.token })
+    .expect(201);
+  assert.equal(
+    (
+      await api()
+        .get('/problems/' + owned.id + '/storage')
+        .expect(200)
+    ).body.previews,
+    2,
+  );
+  await api()
+    .delete('/problems/' + owned.id + '/previews')
+    .expect(200);
+  assert.deepEqual(cleanupScopes.at(-1), { id: owned.id, previewsOnly: true });
+  assert.ok(uploads.has(upload.photo_key));
+  failCleanup = true;
+  const queued = (
+    await api()
+      .delete('/problems/' + owned.id)
+      .expect(202)
+  ).body;
+  assert.equal(queued.status, 'deleting');
+  assert.equal(
+    await db.getRepository(Report).countBy({ capture_id: capture.id }),
+    1,
+  );
+  assert.equal(await db.getRepository(Capture).countBy({ id: capture.id }), 1);
+  assert.ok(
+    !(await api().get('/problems').expect(200)).body.some(
+      (p) => p.id === owned.id,
+    ),
+  );
+  await api()
+    .post('/problems/' + owned.id + '/captures/upload-url')
+    .send({})
+    .expect(409);
+  failCleanup = false;
+  await app.get(ProblemDeletionService).sweep();
+  assert.equal(await db.getRepository(Problem).countBy({ id: owned.id }), 0);
+  assert.equal(await db.getRepository(Capture).countBy({ id: capture.id }), 0);
+  assert.equal(
+    await db.getRepository(Report).countBy({ capture_id: capture.id }),
+    0,
+  );
+  assert.equal(
+    await db.getRepository(Measurement).countBy({ capture_id: capture.id }),
+    0,
+  );
+  assert.ok(!uploads.has(upload.photo_key));
+  assert.equal(await db.getRepository(Problem).countBy({ id: keep.id }), 1);
+  assert.equal(await db.getRepository(Problem).countBy({ id: foreign.id }), 1);
+  await api()
+    .delete('/problems/' + owned.id)
+    .expect(202);
+  deletionIntents.set(owned.id, {
+    ...deletionIntents.get(owned.id),
+    requested_at: Date.now() - 17 * 60_000,
+  });
+  await app.get(ProblemDeletionService).sweep();
+  assert.ok(!deletionIntents.has(owned.id));
 });

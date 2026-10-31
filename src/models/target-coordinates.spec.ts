@@ -7,6 +7,9 @@ import {
 import { constrainTarget } from './segmentation-quality.js';
 const plan: NormalizedTargetPlan = {
   coordinate_system: 'normalized_1000',
+  concept: 'gray scuff',
+  preferred_method: 'spatial',
+  routing_reason: 'Faint mark benefits from spatial guides',
   status: 'clear',
   description: 'Scuff',
   box: { x1: 300, y1: 400, x2: 700, y2: 800 },
@@ -25,6 +28,11 @@ describe('Muse coordinate boundary', () => {
       points: [{ x: 750, y: 1000 }],
     };
     const result = targetToPixels(plan, 1500, 2000);
+    expect(result).toMatchObject({
+      concept: plan.concept,
+      preferred_method: plan.preferred_method,
+      routing_reason: plan.routing_reason,
+    });
     expect(result.box).toEqual(selectionBox(selection));
     expect(constrainTarget(result, selection, 1500, 2000)).not.toBeNull();
     expect(constrainTarget(plan, selection, 1500, 2000)).toBeNull();

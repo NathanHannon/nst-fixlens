@@ -13,6 +13,12 @@ const identity = {
   capture_id: 'capture',
 };
 const preview = {
+  segmentation_method: 'text' as const,
+  method_selection: {
+    model: 'target-muse',
+    reason: 'Distinct visible crack',
+    fallback: false,
+  },
   selection: { x1: 1, y1: 2, x2: 5, y2: 6 },
   mask_key: 'previews/test.png',
   area_px: 10,

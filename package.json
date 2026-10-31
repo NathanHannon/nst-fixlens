@@ -26,7 +26,10 @@
     "schema:check": "npm run build && typeorm schema:log -d dist/database/data-source.js",
     "test:meta-provider": "npm run build && node test/meta-provider.live.mjs",
     "test:meta-api": "npm run build && node test/meta-api.live.mjs",
-    "test:media-download": "npm run build && node test/media-download.live.mjs"
+    "test:media-download": "npm run build && node test/media-download.live.mjs",
+    "test:job-deletion": "npm run build && node test/job-deletion.live.mjs",
+    "test:segmentation-comparison": "npm run build && node test/segmentation-comparison.live.mjs",
+    "test:dynamic-segmentation": "npm run build && node test/dynamic-segmentation.live.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1151.0",

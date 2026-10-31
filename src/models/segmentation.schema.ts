@@ -1,6 +1,7 @@
 import { Ajv } from 'ajv';
 import { BadGatewayException } from '@nestjs/common';
 import { Hazard } from '../diagnosis/diagnosis.dto.js';
+import { validConcept } from './concept-prompt.js';
 import {
   diagnosisSchema,
   parseDiagnosis,
@@ -17,6 +18,9 @@ export interface PixelBox {
   y2: number;
 }
 export interface TargetPlan {
+  concept?: string | null;
+  preferred_method?: 'spatial' | 'text';
+  routing_reason?: string;
   status: 'clear' | 'unclear';
   description: string | null;
   box: PixelBox | null;
@@ -26,6 +30,9 @@ export interface TargetPlan {
   hazards: Hazard[];
 }
 export interface NormalizedTargetPlan extends TargetPlan {
+  concept: string | null;
+  preferred_method: 'spatial' | 'text';
+  routing_reason: string;
   coordinate_system: 'normalized_1000';
 }
 export interface MaskReview {
@@ -60,6 +67,14 @@ export const targetingSchema = {
   additionalProperties: false,
   properties: {
     coordinate_system: { type: 'string', enum: ['normalized_1000'] },
+    concept: {
+      anyOf: [
+        { type: 'string', minLength: 1, maxLength: 80 },
+        { type: 'null' },
+      ],
+    },
+    preferred_method: { type: 'string', enum: ['spatial', 'text'] },
+    routing_reason: text,
     status: { type: 'string', enum: ['clear', 'unclear'] },
     description: { anyOf: [{ ...text, maxLength: 200 }, { type: 'null' }] },
     box: { anyOf: [box, { type: 'null' }] },
@@ -74,6 +89,9 @@ export const targetingSchema = {
   },
   required: [
     'coordinate_system',
+    'concept',
+    'preferred_method',
+    'routing_reason',
     'status',
     'description',
     'box',
@@ -116,6 +134,13 @@ export function parseTarget(text: string): NormalizedTargetPlan {
   if (!validateTarget(result))
     throw new BadGatewayException(
       'Muse returned targeting outside the expected schema',
+    );
+  if (
+    (result.concept !== null && !validConcept(result.concept)) ||
+    (result.preferred_method === 'text' && !result.concept)
+  )
+    throw new BadGatewayException(
+      'Muse returned an invalid segmentation route',
     );
   return result;
 }

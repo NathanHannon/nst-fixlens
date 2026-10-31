@@ -51,3 +51,30 @@ export async function cropPhoto(
 ): Promise<Buffer> {
   return sharp(bytes, options).extract(crop).jpeg({ quality: 95 }).toBuffer();
 }
+// A light tint shows selected pixels while retaining the visible photo texture.
+export async function overlayPhoto(
+  source: Buffer,
+  mask: Buffer,
+  width: number,
+  height: number,
+) {
+  await verifyPhoto(source, width, height);
+  const image = sharp(mask, options);
+  const meta = await image.metadata();
+  if (meta.width !== width || meta.height !== height || !meta.hasAlpha)
+    throw new UnprocessableEntityException(
+      'The outline dimensions do not match the photo.',
+    );
+  const alpha = await image.extractChannel('alpha').raw().toBuffer();
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let i = 0; i < alpha.length; i++)
+    if (alpha[i] >= 128) {
+      rgba[i * 4 + 1] = 220;
+      rgba[i * 4 + 2] = 180;
+      rgba[i * 4 + 3] = 72;
+    }
+  return sharp(source, options)
+    .composite([{ input: rgba, raw: { width, height, channels: 4 } }])
+    .jpeg({ quality: 95 })
+    .toBuffer();
+}

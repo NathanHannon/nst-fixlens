@@ -6,6 +6,9 @@ import type { Calibration } from '../measurements/calibration.js';
 import type { PixelBox } from '../models/segmentation.schema.js';
 import type { MaskQuality } from '../models/segmentation-quality.js';
 export interface SegmentationResult {
+  segmentation_method?: 'spatial' | 'text';
+  method_review?: { model: string; reason: string };
+  method_selection?: { model: string; reason: string; fallback: boolean };
   outline_source?: 'sam' | 'user_corrected' | 'user_drawn';
   status?: 'candidate' | 'unavailable';
   reason?: string;

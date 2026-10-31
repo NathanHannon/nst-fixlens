@@ -55,7 +55,7 @@ export class CapturesService {
     };
   }
   async upload(id: string, userId: string) {
-    await this.problems.owned(id, userId);
+    id = (await this.problems.active(id, userId)).id;
     const capture_id = randomUUID();
     const photo_key = `captures/${id}/${capture_id}.jpg`;
     return {
@@ -65,7 +65,7 @@ export class CapturesService {
     };
   }
   async register(id: string, userId: string, dto: RegisterCaptureDto) {
-    await this.problems.owned(id, userId);
+    id = (await this.problems.active(id, userId)).id;
     const captureId = dto.photo_key.split('/')[2]?.replace(/\.jpg$/, '');
     if (
       !captureId ||

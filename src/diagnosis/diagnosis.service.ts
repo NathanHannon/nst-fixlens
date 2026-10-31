@@ -92,6 +92,11 @@ export class DiagnosisService {
       await this.storage.putMask(key, measured.png, source);
       return await this.present(id, userId, capture.id, {
         ...prior,
+        segmentation_method:
+          source === 'sam' ? prior?.segmentation_method : undefined,
+        method_review: source === 'sam' ? prior?.method_review : undefined,
+        method_selection:
+          source === 'sam' ? prior?.method_selection : undefined,
         selection: source === 'sam' ? prior!.selection : measured.selection,
         target: source === 'sam' ? prior?.target : undefined,
         outline_source: source,
@@ -162,6 +167,8 @@ export class DiagnosisService {
     segmentation: SegmentationResult,
   ) {
     try {
+      // A deletion may have started while a model/storage request was running.
+      await this.eligible(id, userId, captureId);
       const mask_url = segmentation.mask_key
         ? await this.storage.presignRead(segmentation.mask_key)
         : null;
@@ -181,6 +188,8 @@ export class DiagnosisService {
         target: segmentation.target ?? null,
         quality: segmentation.quality ?? null,
         attempts: segmentation.attempts ?? 0,
+        segmentation_method: segmentation.segmentation_method ?? null,
+        method_selection: segmentation.method_selection ?? null,
         calibration: null,
         calibrated_area_mm2: null,
       };
@@ -197,6 +206,8 @@ export class DiagnosisService {
       .getRepository(Problem)
       .findOneBy({ id, user_id: userId });
     if (!problem) throw new NotFoundException('Problem not found');
+    if (problem.status === 'archived')
+      throw new ConflictException('This job is archived or being deleted');
     const capture = await this.db
       .getRepository(Capture)
       .findOneBy({ id: captureId, problem_id: id });
@@ -247,6 +258,8 @@ export class DiagnosisService {
           lock: { mode: 'pessimistic_write' },
         });
         if (!owned) throw new NotFoundException('Problem not found');
+        if (owned.status === 'archived')
+          throw new ConflictException('This job is archived or being deleted');
         if (
           (await manager.existsBy(Report, { capture_id: capture.id })) ||
           (await manager.existsBy(Measurement, { capture_id: capture.id }))
@@ -280,7 +293,7 @@ export class DiagnosisService {
           });
         return { measurement, report };
       });
-      if (segmentation.mask_key)
+      if (segmentation.mask_key && result.measurement)
         await this.storage
           .removeMask(segmentation.mask_key)
           .catch(() =>
