@@ -611,6 +611,10 @@ test('SAM preview confirmation persists the exact mask and rejects invalid selec
         .expect(201)
     ).body;
     assert.ok(preview.mask_url.includes('/previews/'));
+    assert.equal(
+      preview.outline_url,
+      preview.mask_url.replace(/\.png$/, '.outline.png'),
+    );
     assert.equal(preview.area_px, 10);
     assert.equal(preview.segmentation_method, 'spatial');
     assert.equal(preview.method_selection.model, 'muse-target');

@@ -14,7 +14,7 @@ import type {
 } from './diagnosis.provider.js';
 import type { Hazard, SelectionDto } from './diagnosis.dto.js';
 import { MetaModelsService } from '../models/meta-models.service.js';
-import { measureSam } from '../models/sam-measurement.js';
+import { measureSam, outlinePng } from '../models/sam-measurement.js';
 import { StorageService } from '../storage/storage.service.js';
 import type { Calibration } from '../measurements/calibration.js';
 import {
@@ -190,7 +190,12 @@ export class MetaDiagnosisProvider implements DiagnosisProvider {
         }
         const maskKey = key('png');
         try {
-          await this.storage.putMask(maskKey, measured.png);
+          await this.storage.putMask(
+            maskKey,
+            measured.png,
+            'sam',
+            await outlinePng(measured.mask, width, height),
+          );
         } catch {
           await this.cleanup(maskKey);
           throw new BadGatewayException(

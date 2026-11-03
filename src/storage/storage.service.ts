@@ -20,6 +20,16 @@ export interface DeletionIntent {
   requested_at: number;
   initial_cleanup_complete?: boolean;
 }
+
+const previewMaskPattern =
+  /^previews\/[0-9a-f-]{36}\/[0-9a-f-]{36}-[0-9a-f-]{36}\.png$/;
+
+export function previewOutlineKey(maskKey: string) {
+  if (!previewMaskPattern.test(maskKey))
+    throw new Error('Invalid preview mask key');
+  return maskKey.replace(/\.png$/, '.outline.png');
+}
+
 @Injectable()
 export class StorageService {
   private readonly client: S3Client;
@@ -79,7 +89,8 @@ export class StorageService {
       { expiresIn: 300 },
     );
   }
-  async putMask(key: string, png: Buffer, source = 'sam') {
+  async putMask(key: string, png: Buffer, source = 'sam', outline?: Buffer) {
+    const outlineKey = outline ? previewOutlineKey(key) : null;
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
@@ -89,11 +100,18 @@ export class StorageService {
         Metadata: { 'outline-source': source },
       }),
     );
+    if (outline && outlineKey)
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: outlineKey,
+          Body: outline,
+          ContentType: 'image/png',
+        }),
+      );
   }
   async readMask(key: string) {
-    if (
-      !/^previews\/[0-9a-f-]{36}\/[0-9a-f-]{36}-[0-9a-f-]{36}\.png$/.test(key)
-    )
+    if (!previewMaskPattern.test(key))
       throw new Error('Invalid preview mask key');
     return this.readObject(key, 4 * 1024 * 1024);
   }
@@ -142,10 +160,22 @@ export class StorageService {
     );
   }
   async removeMask(key: string) {
+    if (previewMaskPattern.test(key)) {
+      const deleted = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: {
+            Objects: [key, previewOutlineKey(key)].map((Key) => ({ Key })),
+            Quiet: true,
+          },
+        }),
+      );
+      if (deleted.Errors?.length)
+        throw new Error('Could not remove the preview mask and outline');
+      return;
+    }
     if (
-      !/^(masks|previews)\/[0-9a-f-]{36}\/[0-9a-f-]{36}-[0-9a-f-]{36}\.png$/.test(
-        key,
-      ) &&
+      !/^masks\/[0-9a-f-]{36}\/[0-9a-f-]{36}-[0-9a-f-]{36}\.png$/.test(key) &&
       !/^previews\/[0-9a-f-]{36}\/[0-9a-f-]{36}-[0-9a-f-]{36}\.jpg$/.test(key)
     )
       throw new Error('Invalid generated mask key');
@@ -154,11 +184,7 @@ export class StorageService {
     );
   }
   async confirmMask(preview: string, key: string) {
-    if (
-      !/^previews\/[0-9a-f-]{36}\/[0-9a-f-]{36}-[0-9a-f-]{36}\.png$/.test(
-        preview,
-      )
-    )
+    if (!previewMaskPattern.test(preview))
       throw new Error('Invalid preview mask key');
     await this.client.send(
       new CopyObjectCommand({

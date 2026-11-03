@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { formats, decodeMaskToRaster, recordsOfKind } from '@meta-sam/parser';
 import { crc32, deflateSync } from 'node:zlib';
+import sharp from 'sharp';
 import {
   calibratedArea,
   type Calibration,
@@ -179,6 +180,62 @@ export function measureMask(
         }
       : {}),
   };
+}
+
+// Style only the review layer. The original mask still drives editing,
+// measurement, persistence and the final model's visual review.
+export async function outlinePng(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+) {
+  // Sharp expands black foreground, so non-boundary pixels start white.
+  const edges = Buffer.alloc(mask.length, 255);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x;
+      if (
+        mask[index] &&
+        (x === 0 ||
+          x === width - 1 ||
+          y === 0 ||
+          y === height - 1 ||
+          !mask[index - 1] ||
+          !mask[index + 1] ||
+          !mask[index - width] ||
+          !mask[index + width])
+      )
+        edges[index] = 0;
+    }
+
+  // Scale the stroke with the source photo so a 2000px phone image still
+  // reads clearly when shown as a small preview. A darker edge adds contrast.
+  const stroke = Math.min(
+    6,
+    Math.max(1, Math.round(Math.max(width, height) / 450)),
+  );
+  const raster = sharp(edges, { raw: { width, height, channels: 1 } });
+  const [inner, outer] = await Promise.all([
+    raster.clone().dilate(stroke).greyscale().raw().toBuffer(),
+    raster
+      .dilate(stroke * 2)
+      .greyscale()
+      .raw()
+      .toBuffer(),
+  ]);
+  const rgba = Buffer.alloc(mask.length * 4);
+  for (let i = 0; i < mask.length; i++) {
+    if (outer[i]) continue;
+    const offset = i * 4;
+    const bright = inner[i] === 0;
+    rgba[offset] = bright ? 130 : 13;
+    rgba[offset + 1] = bright ? 250 : 48;
+    rgba[offset + 2] = bright ? 211 : 43;
+    rgba[offset + 3] = 255;
+  }
+  return sharp(rgba, { raw: { width, height, channels: 4 } })
+    .png()
+    .toBuffer();
 }
 function chunk(type: string, data: Buffer): Buffer {
   const content = Buffer.concat([Buffer.from(type), data]);

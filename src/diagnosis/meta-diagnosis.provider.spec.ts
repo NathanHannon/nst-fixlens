@@ -201,6 +201,8 @@ describe('user-guided segmentation and assessment', () => {
     expect(storage.putMask).toHaveBeenCalledExactlyOnceWith(
       preview.mask_key,
       measureSam(sam, 5, 5).png,
+      'sam',
+      expect.any(Buffer),
     );
     expect(storage.confirmMask).not.toHaveBeenCalled();
     const result = await provider.diagnose(problem, capture, preview);

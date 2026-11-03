@@ -16,11 +16,15 @@ import type {
 } from './diagnosis.provider.js';
 import { DiagnoseDto, EditMaskDto, SegmentDto } from './diagnosis.dto.js';
 import { SafetyGate } from './safety-gate.service.js';
-import { StorageService } from '../storage/storage.service.js';
+import {
+  previewOutlineKey,
+  StorageService,
+} from '../storage/storage.service.js';
 import { SegmentationReceipt } from './segmentation-receipt.js';
 import { calibrate } from '../measurements/calibration.js';
 import { editMask } from './edit-mask.js';
 import { verifyPhoto } from '../models/analysis-images.js';
+import { outlinePng } from '../models/sam-measurement.js';
 @Injectable()
 export class DiagnosisService {
   private readonly logger = new Logger(DiagnosisService.name);
@@ -89,7 +93,12 @@ export class DiagnosisService {
         : 'user_drawn';
     const key = `previews/${id}/${capture.id}-${randomUUID()}.png`;
     try {
-      await this.storage.putMask(key, measured.png, source);
+      await this.storage.putMask(
+        key,
+        measured.png,
+        source,
+        await outlinePng(measured.mask, width, height),
+      );
       return await this.present(id, userId, capture.id, {
         ...prior,
         segmentation_method:
@@ -169,15 +178,19 @@ export class DiagnosisService {
     try {
       // A deletion may have started while a model/storage request was running.
       await this.eligible(id, userId, captureId);
-      const mask_url = segmentation.mask_key
-        ? await this.storage.presignRead(segmentation.mask_key)
-        : null;
+      const [mask_url, outline_url] = segmentation.mask_key
+        ? await Promise.all([
+            this.storage.presignRead(segmentation.mask_key),
+            this.storage.presignRead(previewOutlineKey(segmentation.mask_key)),
+          ])
+        : [null, null];
       return {
         ...this.receipts.issue(
           { user_id: userId, problem_id: id, capture_id: captureId },
           segmentation,
         ),
         mask_url,
+        outline_url,
         outline_source: segmentation.outline_source ?? 'sam',
         area_px: segmentation.area_px,
         perimeter_px: segmentation.perimeter_px,

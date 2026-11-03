@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
 import { overlayPhoto } from './analysis-images.js';
-import { measureMask } from './sam-measurement.js';
+import { measureMask, outlinePng } from './sam-measurement.js';
 describe('local mask review visualization', () => {
   it('shows selected pixels on the source without filling the enclosing rectangle', async () => {
     const source = await sharp({
@@ -28,5 +28,26 @@ describe('local mask review visualization', () => {
     expect(at(50, 12, 1)).toBeGreaterThan(at(50, 12, 0) + 35);
     expect(Math.abs(at(50, 50, 1) - at(50, 50, 0))).toBeLessThan(5);
     expect([info.width, info.height]).toEqual([100, 100]);
+  });
+
+  it('keeps the review outline on the mask boundary, including thin isolated damage', async () => {
+    const width = 120;
+    const height = 100;
+    const mask = new Uint8Array(width * height);
+    for (let y = 10; y < 70; y++) mask.fill(1, y * width + 10, y * width + 70);
+    for (let y = 20; y < 90; y++) mask[y * width + 100] = 1;
+    const { data, info } = await sharp(await outlinePng(mask, width, height))
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const alpha = (x: number, y: number) => data[(y * width + x) * 4 + 3];
+    expect([info.width, info.height, info.channels]).toEqual([
+      width,
+      height,
+      4,
+    ]);
+    expect(alpha(10, 40)).toBe(255);
+    expect(alpha(100, 40)).toBe(255);
+    expect(alpha(45, 40)).toBe(0);
+    expect(alpha(85, 40)).toBe(0);
   });
 });
